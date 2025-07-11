@@ -180,12 +180,13 @@ client.on('interactionCreate', async interaction => {
 async function updateTeamListMessage(client) {
   if (!client.teamListMessage) return; // обновляем только если сообщение уже создано
 
-  let desc = '';
-  let i = 1;
-  for (const team of client.teams.values()) {
-    desc += `**${i}.** <@${team.leader}> + <@${team.teammate}> — **${team.name}**\n`;
-    i++;
-  }
+let desc = '';
+let i = 1;
+for (const team of client.teams.values()) {
+  desc += `**${i}. ${team.name}**\n— <@${team.leader}> + <@${team.teammate}>\n\n`;
+  i++;
+}
+
   if (!desc) desc = '_пока никто не зарегистрировался_';
 
   const embed = new EmbedBuilder()
