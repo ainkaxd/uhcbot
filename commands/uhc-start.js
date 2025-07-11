@@ -1,17 +1,14 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-const messagePath = path.join(__dirname, '../data/message.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('uhc-start')
     .setDescription('Запускает сообщение регистрации'),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     const embed = new EmbedBuilder()
       .setTitle('📢 Pako UHC 2 — снова тут джиги!')
-      .setDescription('🗓 **19 июля в 21:00**\n📌 Версия: 1.8.9\n🎤 Микрофон 18+\n :face_with_symbols_over_mouth: Запрещено материться\n\nНажмите кнопку ниже, чтобы зарегистрироваться!')
+      .setDescription('🗓 **19 июля в 21:00**\n📌 Версия: 1.8.9\n🎤 Микрофон 18+\n:face_with_symbols_over_mouth: Запрещено материться\n\nНажмите кнопку ниже, чтобы зарегистрироваться!')
       .setColor(0xff5555);
 
     const row = new ActionRowBuilder().addComponents(
@@ -22,11 +19,9 @@ module.exports = {
 
     const sentMessage = await interaction.channel.send({ embeds: [embed], components: [row] });
 
-    fs.writeFileSync(messagePath, JSON.stringify({
-      id: sentMessage.id,
-      channelId: interaction.channel.id
-    }));
+    // Сохраняем сообщение в память клиента
+    client.registrationMessage = sentMessage;
 
-    await interaction.reply({ content: '✅ Сообщение регистрации запущено!', flags: 1 << 6 });
+    await interaction.reply({ content: '✅ Сообщение регистрации запущено!', ephemeral: true });
   }
 };

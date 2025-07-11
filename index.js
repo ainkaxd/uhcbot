@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 require('dotenv').config();
 const {
   Client,
@@ -14,137 +12,105 @@ const {
   ButtonStyle
 } = require('discord.js');
 
-const { readTeams, saveTeams } = require('./core/uhcStorage');
-const { updateTeamListMessage } = require('./core/ui');
-
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
 client.commands = new Collection();
-const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
-for (const file of commandFiles) {
-  const command = require(path.join(commandsPath, file));
-  if ('data' in command && 'execute' in command) {
-    client.commands.set(command.data.name, command);
-  } else {
-    console.warn(`[WARNING] Команда в файле ${file} не имеет 'data' или 'execute'.`);
-  }
-}
+client.teams = new Map(); // вместо файловой системы
+client.registrationMessage = null;
 
 client.once('ready', () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
 client.on('interactionCreate', async interaction => {
-  // Slash-команды
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
     try {
-      await command.execute(interaction);
+      await command.execute(interaction, client);
     } catch (error) {
       console.error(error);
-      try {
-        const errorMsg = { content: '❌ Произошла ошибка.', flags: 1 << 6 };
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(errorMsg);
-        } else {
-          await interaction.reply(errorMsg);
-        }
-      } catch (innerError) {
-        console.warn('⚠ Не удалось отправить сообщение об ошибке:', innerError.message);
+      const errorMsg = { content: '❌ Произошла ошибка.', ephemeral: true };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(errorMsg);
+      } else {
+        await interaction.reply(errorMsg);
       }
     }
   }
 
-  // Кнопки
   if (interaction.isButton()) {
+    const userId = interaction.user.id;
     if (interaction.customId === 'register') {
-      try {
-        const modal = new ModalBuilder()
-          .setCustomId('register-modal')
-          .setTitle('Регистрация команды')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('teammate')
-                .setLabel('Discord тег тиммейта (пример: user#0001)')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('teamname')
-                .setLabel('Название команды')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-            )
-          );
-        await interaction.showModal(modal);
-      } catch (e) {
-        console.warn('❌ Ошибка показа модалки регистрации:', e.message);
-      }
-    } else if (interaction.customId === 'edit') {
-      try {
-        const modal = new ModalBuilder()
-          .setCustomId('edit-modal')
-          .setTitle('Изменение состава команды')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('teammate')
-                .setLabel('Новый Discord тег тиммейта')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('teamname')
-                .setLabel('Новое название команды')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-            )
-          );
-        await interaction.showModal(modal);
-      } catch (e) {
-        console.warn('❌ Ошибка показа модалки изменения состава:', e.message);
-      }
-    } else if (interaction.customId === 'unregister') {
-      const userId = interaction.user.id;
-      const teams = readTeams();
-      const teamEntry = Object.entries(teams).find(([_, team]) =>
-        team.leader === userId || team.teammate === userId
-      );
+      const modal = new ModalBuilder()
+        .setCustomId('register-modal')
+        .setTitle('Регистрация команды')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('teammate')
+              .setLabel('Discord тег тиммейта (пример: user#0001)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('teamname')
+              .setLabel('Название команды')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+      await interaction.showModal(modal);
+    }
 
-      if (!teamEntry) {
-        return interaction.reply({
-          content: '❌ Ты не зарегистрирован ни в одной команде.',
-          flags: 1 << 6
-        });
+    if (interaction.customId === 'edit') {
+      if (!client.teams.has(userId)) {
+        return interaction.reply({ content: '❌ Ты не в команде.', ephemeral: true });
       }
 
-      const [teamId, team] = teamEntry;
-      delete teams[teamId];
-      saveTeams(teams);
-      const channel = await interaction.guild.channels.fetch(process.env.REGISTRATION_CHANNEL_ID);
-      await updateTeamListMessage(channel);
+      const old = client.teams.get(userId);
 
-      return interaction.reply({
-        content: `✅ Ты покинул команду **${team.name}**.`,
-        flags: 1 << 6
-      });
+      const modal = new ModalBuilder()
+        .setCustomId('edit-modal')
+        .setTitle('Изменение состава команды')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('teammate')
+              .setLabel('Новый Discord тег тиммейта')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setValue(old.teammateTag || '')
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('teamname')
+              .setLabel('Новое название команды')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setValue(old.name || '')
+          )
+        );
+      await interaction.showModal(modal);
+    }
+
+    if (interaction.customId === 'unregister') {
+      if (!client.teams.has(userId)) {
+        return interaction.reply({ content: '❌ Ты не зарегистрирован.', ephemeral: true });
+      }
+      client.teams.delete(userId);
+      await updateTeamListMessage(interaction.guild, client);
+      return interaction.reply({ content: '✅ Ты вышел из команды.', ephemeral: true });
     }
   }
 
-  // Обработка модалок
   if (interaction.isModalSubmit()) {
     const userId = interaction.user.id;
     const guild = interaction.guild;
     const members = await guild.members.fetch();
-    const teams = readTeams();
 
     if (interaction.customId === 'register-modal') {
       const teammateTag = interaction.fields.getTextInputValue('teammate');
@@ -152,36 +118,27 @@ client.on('interactionCreate', async interaction => {
       const teammate = members.find(u => u.user.tag === teammateTag);
 
       if (!teammate) {
-        return interaction.reply({ content: '❌ Тиммейт не найден.', flags: 1 << 6 });
+        return interaction.reply({ content: '❌ Тиммейт не найден.', ephemeral: true });
       }
 
-      const alreadyInTeam = Object.values(teams).some(team =>
+      const alreadyInTeam = [...client.teams.values()].some(team =>
         team.leader === userId || team.teammate === userId ||
         team.leader === teammate.id || team.teammate === teammate.id
       );
 
       if (alreadyInTeam) {
-        return interaction.reply({
-          content: '❌ Кто-то из вас уже зарегистрирован.',
-          flags: 1 << 6
-        });
+        return interaction.reply({ content: '❌ Кто-то из вас уже зарегистрирован.', ephemeral: true });
       }
 
-      const teamId = `${userId}-${teammate.id}`;
-      teams[teamId] = {
+      client.teams.set(userId, {
         name: teamName,
         leader: userId,
-        teammate: teammate.id
-      };
-
-      saveTeams(teams);
-      const channel = await guild.channels.fetch(process.env.REGISTRATION_CHANNEL_ID);
-      await updateTeamListMessage(channel);
-
-      return interaction.reply({
-        content: `✅ Команда **${teamName}** зарегистрирована: <@${userId}> + <@${teammate.id}>`,
-        flags: 1 << 6
+        teammate: teammate.id,
+        teammateTag: teammateTag
       });
+
+      await updateTeamListMessage(guild, client);
+      return interaction.reply({ content: `✅ Команда **${teamName}** зарегистрирована!`, ephemeral: true });
     }
 
     if (interaction.customId === 'edit-modal') {
@@ -190,37 +147,46 @@ client.on('interactionCreate', async interaction => {
       const newMate = members.find(u => u.user.tag === newTag);
 
       if (!newMate) {
-        return interaction.reply({ content: '❌ Новый тиммейт не найден.', flags: 1 << 6 });
+        return interaction.reply({ content: '❌ Новый тиммейт не найден.', ephemeral: true });
       }
 
-      let teamId = null;
-      let old = null;
-      for (const [id, team] of Object.entries(teams)) {
-        if (team.leader === userId || team.teammate === userId) {
-          teamId = id;
-          old = team;
-          break;
-        }
-      }
-
-      if (!teamId) {
-        return interaction.reply({ content: '❌ Ты не в команде.', flags: 1 << 6 });
-      }
-
-      delete teams[teamId];
-      teams[`${userId}-${newMate.id}`] = {
+      client.teams.set(userId, {
         name: newName,
         leader: userId,
-        teammate: newMate.id
-      };
+        teammate: newMate.id,
+        teammateTag: newTag
+      });
 
-      saveTeams(teams);
-      const channel = await guild.channels.fetch(process.env.REGISTRATION_CHANNEL_ID);
-      await updateTeamListMessage(channel);
-
-      return interaction.reply({ content: `✅ Состав изменён. Новая команда: **${newName}**`, flags: 1 << 6 });
+      await updateTeamListMessage(guild, client);
+      return interaction.reply({ content: `✅ Команда обновлена на **${newName}**!`, ephemeral: true });
     }
   }
 });
+
+async function updateTeamListMessage(guild, client) {
+  const channel = await guild.channels.fetch(process.env.REGISTRATION_CHANNEL_ID);
+  if (!channel || !client.registrationMessage) return;
+
+  let description = '';
+  let index = 1;
+  for (const [id, team] of client.teams.entries()) {
+    description += `**${index}.** <@${team.leader}> + <@${team.teammate}> — **${team.name}**\n`;
+    index++;
+  }
+  if (!description) description = 'Пока никто не зарегистрировался.';
+
+  const embed = new EmbedBuilder()
+    .setTitle('📋 Список команд')
+    .setDescription(description)
+    .setColor(0x00ae86);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('register').setLabel('Регистрация').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('edit').setLabel('Изменить состав').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('unregister').setLabel('Отменить участие').setStyle(ButtonStyle.Danger)
+  );
+
+  await client.registrationMessage.edit({ embeds: [embed], components: [row] });
+}
 
 client.login(process.env.TOKEN);
