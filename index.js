@@ -183,7 +183,7 @@ async function updateTeamListMessage(client) {
 let desc = '';
 let i = 1;
 for (const team of client.teams.values()) {
-  desc += `**${i}. ${team.name}**\n— <@${team.leader}> + <@${team.teammate}>\n\n`;
+  desc += `**${i}. ${team.name}**\n— <@${team.leader}> + <@${team.teammate}>\n`;
   i++;
 }
 
@@ -198,3 +198,5 @@ for (const team of client.teams.values()) {
 }
 
 client.login(process.env.TOKEN);
+
+
